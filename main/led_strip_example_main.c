@@ -12,6 +12,7 @@
 
 #include "makerhub.h"
 #include "astro_calc.h"
+#include "web_server.h"
 
 #define RMT_LED_STRIP_RESOLUTION_HZ 10000000 // 10MHz resolution, 1 tick = 0.1us (led strip needs a high resolution)
 #define RMT_LED_STRIP_GPIO_NUM      13
@@ -151,7 +152,7 @@ typedef struct {
 SunLedMix mix_sun_led_natural(float brightness, float cct)
 {
     const float CCT_MIN   = 1700.0f;
-    const float CCT_WARM  = 3000.0f;
+    //const float CCT_WARM  = 3000.0f;
     const float CCT_WHITE = 6500.0f;
 
     SunLedMix out = {0};
@@ -255,27 +256,26 @@ void calculate_sun_led_strip(
         led_mix.amber = base_mix.amber * led_brightness;
 
         led_strip_pixels[i * 3 + 0] = led_mix.white * SUN_LED_BRIGHTNESS_MAX;
-        led_strip_pixels[i * 3 + 1] = led_mix.warm * SUN_LED_BRIGHTNESS_MAX;
-        led_strip_pixels[i * 3 + 2] = led_mix.amber * SUN_LED_BRIGHTNESS_MAX;
-        }
+        led_strip_pixels[i * 3 + 2] = led_mix.warm * SUN_LED_BRIGHTNESS_MAX;
+        led_strip_pixels[i * 3 + 1] = led_mix.amber * SUN_LED_BRIGHTNESS_MAX;
+    }
 }
 
-void astro_led_strip_update(int year, int month, int day,
-    int hour, int minute, int second,
+void astro_led_strip_update(struct tm *local_time,
     double latitude,
     double longitude,
-    double timezone){
-
+    double timezone)
+{
         AstroHorizontal sun = calculate_sun_horizontal(
-            year, month, day,
-            hour, minute, second,
+            local_time->tm_year, local_time->tm_mon, local_time->tm_mday,
+            local_time->tm_hour, local_time->tm_min, local_time->tm_sec,
             latitude, longitude, timezone
         );
         
         double arc_angle;
         bool ok = calculate_sun_arc_angle(
-            year, month, day,
-            hour, minute, second,
+            local_time->tm_year, local_time->tm_mon, local_time->tm_mday,
+            local_time->tm_hour, local_time->tm_min, local_time->tm_sec,
             latitude, longitude, timezone,
             &arc_angle
         );
@@ -294,9 +294,142 @@ void astro_led_strip_update(int year, int month, int day,
             brightness,
             cct
         );
-        led_strip_transmit(&leds_wwa);
+}
 
+void led_strip_update_fixed( float brightness_max,float angle ){
 
+    angle = clampf(angle, 0.0f, 180.0f);
+    float altitude = (angle > 90.0f) ? (180.0 - angle) : angle;
+    float hour_angle = angle - 90.0f;
+
+    float brightness = (float)sun_brightness_from_altitude(altitude);
+    float cct = (float)sun_cct_with_morning_evening(altitude,hour_angle);
+    
+    brightness_max = clampf(brightness_max, 0.0f, 1.0f);
+    calculate_sun_led_strip(
+        angle,
+        brightness_max * brightness,
+        cct
+    );
+}
+
+void led_strip_update_night( float brightness,float cct ){
+
+    brightness = clampf(brightness, 0.0f, 1.0f);
+    SunLedMix base_mix = mix_sun_led_natural(brightness, cct);
+
+    for (int i = 0; i < EXAMPLE_LED_NUMBERS; i++) {
+
+        SunLedMix led_mix;
+
+        led_mix.white = base_mix.white * brightness;
+        led_mix.warm  = base_mix.warm  * brightness;
+        led_mix.amber = base_mix.amber * brightness;
+
+        led_strip_pixels[i * 3 + 0] = led_mix.white * SUN_LED_BRIGHTNESS_MAX;
+        led_strip_pixels[i * 3 + 2] = led_mix.warm * SUN_LED_BRIGHTNESS_MAX;
+        led_strip_pixels[i * 3 + 1] = led_mix.amber * SUN_LED_BRIGHTNESS_MAX;
+    }
+}
+
+typedef enum {
+    WIFI_STATE_DISCONNECTED = 0,
+    WIFI_STATE_CONNECTING,
+    WIFI_STATE_CONNECTED,
+    WIFI_STATE_FAILED,
+} wifi_state_t;
+
+typedef struct {
+    sky_state_t sky_state;
+    time_t local_now;
+    struct tm local_time;
+    wifi_state_t wifi_state;
+    makerhub_ntp_state_t ntp_state;
+    bool initialized;
+} astro_run_state_t;
+
+astro_run_state_t astro_run_state;
+
+void init_state_from_nvs(void){
+    sky_state_t state;
+    if(load_sky_state_from_nvs(&state) != ESP_OK){
+        ESP_LOGE(TAG, "Failed to load state from NVS");
+    }
+    memcpy(&astro_run_state.sky_state, &state, sizeof(sky_state_t));
+    ESP_ERROR_CHECK(makerhub_ntp_set_timezone(astro_run_state.sky_state.timezone));
+    astro_run_state.wifi_state = WIFI_STATE_DISCONNECTED;
+    astro_run_state.ntp_state = MAKERHUB_NTP_STATE_STOPPED;
+    astro_run_state.initialized = true;
+
+    astro_run_state.local_time.tm_year = 2026;
+    astro_run_state.local_time.tm_mon = 7;
+    astro_run_state.local_time.tm_mday = 1;
+    astro_run_state.local_time.tm_hour = 5;
+    astro_run_state.local_time.tm_min = 0;
+    astro_run_state.local_time.tm_sec = 0;
+    astro_run_state.local_now = mktime(&astro_run_state.local_time)+astro_run_state.sky_state.timezone*3600;
+
+}
+
+void wifi_connected_callback(void *user_ctx){
+    ESP_LOGI(TAG, "WiFi connected");
+    astro_run_state.wifi_state = WIFI_STATE_CONNECTED;
+}
+
+void wifi_disconnected_callback(void *user_ctx){
+    ESP_LOGI(TAG, "WiFi disconnected");
+    astro_run_state.wifi_state = WIFI_STATE_DISCONNECTED;
+}
+
+void wifi_got_ip_callback(const char *ip, void *user_ctx){
+    ESP_LOGI(TAG, "WiFi got IP: %s", ip);
+    astro_run_state.wifi_state = WIFI_STATE_CONNECTED;
+    start_web_server();
+}
+
+void wifi_fail_callback(wifi_err_reason_t reason, void *user_ctx){
+    ESP_LOGI(TAG, "WiFi failed: %s", esp_err_to_name(reason));
+    astro_run_state.wifi_state = WIFI_STATE_FAILED;
+}
+
+void astro_run_task(void *pvParameter){
+
+    bool state_flush = false;
+    QueueHandle_t state_queue = get_state_queue();
+    if(state_queue == NULL){
+        ESP_LOGE(TAG, "Failed to get state queue");
+        //return;
+    }
+    while(1){
+        state_queue = get_state_queue();
+        if (state_queue != NULL) {
+            if(xQueueReceive(state_queue, &astro_run_state.sky_state, 0) == pdPASS){
+                state_flush = true;
+                ESP_LOGI(TAG, "State flushed");
+            }
+        }
+
+        if( astro_run_state.sky_state.mode == SKY_MODE_TIME ){
+
+        }
+        else if( astro_run_state.sky_state.mode == SKY_MODE_FIXED && state_flush){
+            led_strip_update_fixed(astro_run_state.sky_state.brightness / 100.0f, 180.0 - astro_run_state.sky_state.angle);
+            state_flush = false;
+            led_strip_transmit(&leds_wwa);
+        }
+        else if( astro_run_state.sky_state.mode == SKY_MODE_NIGHT && state_flush){
+            led_strip_update_night(astro_run_state.sky_state.night_brightness / 100.0f, astro_run_state.sky_state.color_temp);
+            state_flush = false;
+            led_strip_transmit(&leds_wwa);
+        }
+        else if( astro_run_state.sky_state.mode == SKY_MODE_OFF && state_flush){
+            memset(leds_wwa.ledptr, 0, leds_wwa.led_size);
+            state_flush = false;
+            led_strip_transmit(&leds_wwa);
+        }
+        
+        vTaskDelay(pdMS_TO_TICKS(EXAMPLE_FRAME_DURATION_MS));
+    }
 }
 
 void app_main(void)
@@ -304,30 +437,70 @@ void app_main(void)
     ESP_LOGI(TAG, "Create RMT TX channel");
 
     led_strip_init(&leds_wwa, led_strip_pixels, sizeof(led_strip_pixels));
+
+    makerhub_wifi_event_callbacks_t wifi_callbacks = {
+        .on_disconnected = wifi_disconnected_callback,
+        .on_connecting = NULL,
+        .on_got_ip = wifi_got_ip_callback,
+        .on_connected = wifi_connected_callback,
+        .on_connect_failed = wifi_fail_callback,
+        .user_ctx = NULL
+    };
+    makerhub_wifi_set_event_callbacks(&wifi_callbacks);
+
     makerhub_init();
 
     float offset = 0;
 
-    double latitude = 22.5431;
-    double longitude = 114.0579;
-    double timezone = 8.0;
-
     int year = 2026, month = 7, day = 1;
     int hour = 5, minute = 0, second = 0;
 
+    if(!astro_run_state.initialized){
+        init_state_from_nvs();
+        set_sky_state(&astro_run_state.sky_state);
+    }
+    astro_run_task(NULL);
+    //xTaskCreate(astro_run_task, "astro_run_task", 4096, NULL, 5, NULL);
     while (1) {
-
-        astro_led_strip_update(year, month, day, hour, minute, second, latitude, longitude, timezone);
-        vTaskDelay(pdMS_TO_TICKS(EXAMPLE_FRAME_DURATION_MS));
-
-        //hour = ( hour < 24 ) ? hour + 1 : 0;
-        if(minute == 60){
-            minute = 0;
-            hour = ( hour < 21 ) ? hour + 1 : 5;
-        }else{
-            minute++;
+        QueueHandle_t state_queue = get_state_queue();
+        if (state_queue != NULL) {
+            sky_state_t new_state;
+            while (xQueueReceive(state_queue, &new_state, 0) == pdPASS) {
+                //esp_err_t tz_ret = makerhub_ntp_set_timezone(state.timezone);
+                //if (tz_ret != ESP_OK) {
+                //    ESP_LOGW(TAG, "Invalid timezone %.2f: %s", state.timezone, esp_err_to_name(tz_ret));
+                //}
+            }
         }
 
+        time_t local_now = 0;
+        if (makerhub_ntp_get_local_time(&local_now, NULL) == ESP_OK) {
+            struct tm local_time = {0};
+            gmtime_r(&local_now, &local_time);
+
+            year = local_time.tm_year + 1900;
+            month = local_time.tm_mon + 1;
+            day = local_time.tm_mday;
+            hour = local_time.tm_hour;
+            minute = local_time.tm_min;
+            second = local_time.tm_sec;
+        }
+
+        astro_led_strip_update(&astro_run_state.local_time, 
+                                astro_run_state.sky_state.latitude, astro_run_state.sky_state.longitude, 
+                                astro_run_state.sky_state.timezone);
+
+        led_strip_transmit(&leds_wwa);
+        vTaskDelay(pdMS_TO_TICKS(EXAMPLE_FRAME_DURATION_MS));
+
+        if (!makerhub_ntp_is_synced()) {
+            if(minute == 60){
+                minute = 0;
+                hour = ( hour < 21 ) ? hour + 1 : 5;
+            }else{
+                minute++;
+            }
+        }
         offset = ( offset < 24 ) ? offset + 0.1 : 0;
     }
 }

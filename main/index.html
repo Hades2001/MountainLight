@@ -1,0 +1,1106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Celestial Dome Controller</title>
+
+<style>
+:root {
+    --bg: #080a0f;
+    --panel: #121722;
+    --panel-2: #171e2b;
+    --border: rgba(255, 255, 255, 0.08);
+    --text: #f4f7fb;
+    --muted: #8b97a8;
+    --accent: #ffb84d;
+    --accent-2: #78d6ff;
+    --danger: #ff5c6c;
+    --ok: #6dffb5;
+    --shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+    --radius: 18px;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    min-height: 100%;
+    background:
+        radial-gradient(circle at top, rgba(70, 120, 255, 0.18), transparent 35%),
+        radial-gradient(circle at bottom right, rgba(255, 184, 77, 0.12), transparent 35%),
+        var(--bg);
+    color: var(--text);
+    font-family:
+        Inter,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        "PingFang SC",
+        "Microsoft YaHei",
+        sans-serif;
+}
+
+body {
+    padding: 22px;
+}
+
+.app {
+    width: 100%;
+    max-width: 980px;
+    margin: 0 auto;
+}
+
+.hero {
+    width: 100%;
+    min-height: 120px;
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    background:
+        linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02)),
+        rgba(18, 23, 34, 0.88);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    position: relative;
+    margin-bottom: 18px;
+}
+
+.hero::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, rgba(0,0,0,0.2), transparent);
+    pointer-events: none;
+}
+
+.title-img {
+    width: 100%;
+    height: 150px;
+    object-fit: cover;
+    display: block;
+    opacity: 0.9;
+}
+
+.hero-text {
+    position: absolute;
+    left: 22px;
+    bottom: 18px;
+    z-index: 2;
+}
+
+.hero-title {
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+}
+
+.hero-subtitle {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.status-bar {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+}
+
+.status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 13px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--ok);
+    box-shadow: 0 0 12px var(--ok);
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 18px;
+}
+
+.card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: rgba(18, 23, 34, 0.88);
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(18px);
+}
+
+.side-card {
+    padding: 14px;
+}
+
+.content-card {
+    padding: 20px;
+    min-height: 420px;
+}
+
+.section-title {
+    font-size: 14px;
+    color: var(--muted);
+    margin-bottom: 12px;
+}
+
+.mode-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.mode-btn {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--panel-2);
+    color: var(--text);
+    padding: 14px;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.18s ease;
+}
+
+.mode-btn:hover {
+    border-color: rgba(255, 184, 77, 0.55);
+    transform: translateY(-1px);
+}
+
+.mode-btn.active {
+    background:
+        linear-gradient(135deg, rgba(255,184,77,0.24), rgba(120,214,255,0.08)),
+        var(--panel-2);
+    border-color: rgba(255, 184, 77, 0.8);
+}
+
+.mode-name {
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.mode-desc {
+    margin-top: 5px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.panel {
+    display: none;
+}
+
+.panel.active {
+    display: block;
+}
+
+.panel-header {
+    margin-bottom: 22px;
+}
+
+.panel-title {
+    font-size: 24px;
+    font-weight: 800;
+}
+
+.panel-desc {
+    margin-top: 6px;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.field {
+    background: rgba(255,255,255,0.035);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 14px;
+}
+
+.field.full {
+    grid-column: 1 / -1;
+}
+
+label {
+    display: block;
+    color: var(--muted);
+    font-size: 13px;
+    margin-bottom: 8px;
+}
+
+.value-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: center;
+}
+
+.value {
+    color: var(--accent);
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+}
+
+input[type="range"] {
+    width: 100%;
+    accent-color: var(--accent);
+}
+
+input[type="number"],
+select {
+    width: 100%;
+    height: 42px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    outline: none;
+    background: #0d121b;
+    color: var(--text);
+    padding: 0 12px;
+    font-size: 14px;
+}
+
+select {
+    cursor: pointer;
+}
+
+.switch-line {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+}
+
+.switch {
+    position: relative;
+    width: 52px;
+    height: 30px;
+    flex-shrink: 0;
+}
+
+.switch input {
+    display: none;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    inset: 0;
+    background: #333b4a;
+    border-radius: 999px;
+    transition: 0.2s;
+}
+
+.slider::before {
+    content: "";
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    left: 3px;
+    top: 3px;
+    border-radius: 50%;
+    background: white;
+    transition: 0.2s;
+}
+
+.switch input:checked + .slider {
+    background: var(--accent);
+}
+
+.switch input:checked + .slider::before {
+    transform: translateX(22px);
+}
+
+.preview {
+    position: relative;
+    height: 180px;
+    border-radius: 18px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background:
+        radial-gradient(circle at center bottom, rgba(255,184,77,0.18), transparent 45%),
+        linear-gradient(180deg, #07111d, #07090f);
+    margin-bottom: 18px;
+}
+
+.arc {
+    position: absolute;
+    width: 70%;
+    height: 140%;
+    left: 15%;
+    top: 24%;
+    border: 1px dashed rgba(255,255,255,0.18);
+    border-bottom: none;
+    border-radius: 50% 50% 0 0;
+}
+
+.sun {
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 30px rgba(255,184,77,0.95);
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.ground {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 36px;
+    background: linear-gradient(180deg, transparent, rgba(0,0,0,0.6));
+    border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 18px;
+}
+
+button.secondary {
+    border-radius: 14px;
+    padding: 13px 18px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: transform 0.15s ease, opacity 0.15s ease;
+    background: rgba(255,255,255,0.08);
+    color: var(--text);
+    border: 1px solid var(--border);
+}
+
+button.secondary:hover {
+    transform: translateY(-1px);
+}
+
+.toast {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%);
+    background: rgba(20, 26, 38, 0.96);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 12px 16px;
+    border-radius: 999px;
+    font-size: 13px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease, bottom 0.2s ease;
+    box-shadow: var(--shadow);
+}
+
+.toast.show {
+    opacity: 1;
+    bottom: 34px;
+}
+
+.note {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.6;
+    margin-top: 8px;
+}
+
+@media (max-width: 760px) {
+    body {
+        padding: 14px;
+    }
+
+    .grid {
+        grid-template-columns: 1fr;
+    }
+
+    .mode-list {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .title-img {
+        height: 130px;
+    }
+
+    .hero-title {
+        font-size: 22px;
+    }
+
+    .panel-title {
+        font-size: 21px;
+    }
+}
+
+@media (max-width: 420px) {
+    .mode-list {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+</head>
+
+<body>
+<div class="app">
+    <div class="hero">
+        <img class="title-img" src="/title.png" alt="Title Image" />
+        <div class="hero-text">
+            <div class="hero-title">Celestial Dome</div>
+            <div class="hero-subtitle">Sun / Moon Position Lighting Controller</div>
+        </div>
+    </div>
+
+    <div class="status-bar">
+        <div class="status-pill">
+            <span class="dot"></span>
+            <span id="statusText">Ready</span>
+        </div>
+        <div class="status-pill">
+            Current Mode: <strong id="currentModeText">--</strong>
+        </div>
+    </div>
+
+    <div class="grid">
+        <div class="card side-card">
+            <div class="section-title">模式选择</div>
+
+            <div class="mode-list">
+                <button class="mode-btn" data-mode="fixed">
+                    <div class="mode-name">固定角度</div>
+                    <div class="mode-desc">手动调整太阳在天穹中的位置与亮度。</div>
+                </button>
+
+                <button class="mode-btn" data-mode="time">
+                    <div class="mode-name">时间同步</div>
+                    <div class="mode-desc">通过 NTP 时间、经纬度和时区自动更新天体位置。</div>
+                </button>
+
+                <button class="mode-btn" data-mode="night">
+                    <div class="mode-name">夜灯模式</div>
+                    <div class="mode-desc">天穹整体亮起，可调整亮度与粗略色温。</div>
+                </button>
+
+                <button class="mode-btn" data-mode="off">
+                    <div class="mode-name">关闭</div>
+                    <div class="mode-desc">关闭全部灯光与动态控制。</div>
+                </button>
+            </div>
+        </div>
+
+        <div class="card content-card">
+            <div class="preview">
+                <div class="arc"></div>
+                <div class="sun" id="sunPreview"></div>
+                <div class="ground"></div>
+            </div>
+
+            <div class="panel active" id="panel-fixed">
+                <div class="panel-header">
+                    <div class="panel-title">固定角度</div>
+                    <div class="panel-desc">
+                        手动拖拽太阳角度，适合展示、调试或固定场景灯光。参数变化会实时同步到设备。
+                    </div>
+                </div>
+
+                <div class="form-grid">
+                    <div class="field full">
+                        <div class="value-row">
+                            <label>太阳角度</label>
+                            <div class="value"><span id="angleValue">90</span>°</div>
+                        </div>
+                        <input id="angle" type="range" min="0" max="180" value="90" />
+                    </div>
+
+                    <div class="field full">
+                        <div class="value-row">
+                            <label>亮度</label>
+                            <div class="value"><span id="brightnessValue">80</span>%</div>
+                        </div>
+                        <input id="brightness" type="range" min="0" max="100" value="80" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel" id="panel-time">
+                <div class="panel-header">
+                    <div class="panel-title">时间同步</div>
+                    <div class="panel-desc">
+                        通过 NTP 获取时间，并根据经纬度、时区自动计算太阳与月亮位置。
+                    </div>
+                </div>
+
+                <div class="form-grid">
+                    <div class="field full">
+                        <label>国家 / 地区预设</label>
+                        <select id="locationPreset">
+                            <option value="">手动输入</option>
+                            <option value="22.5431,114.0579,8">中国 深圳 UTC+8</option>
+                            <option value="31.2304,121.4737,8">中国 上海 UTC+8</option>
+                            <option value="39.9042,116.4074,8">中国 北京 UTC+8</option>
+                            <option value="1.3521,103.8198,8">新加坡 UTC+8</option>
+                            <option value="35.6762,139.6503,9">日本 东京 UTC+9</option>
+                            <option value="37.7749,-122.4194,-8">美国 旧金山 UTC-8</option>
+                            <option value="51.5072,-0.1276,0">英国 伦敦 UTC+0</option>
+                        </select>
+                        <div class="note">说明：如当地存在夏令时，请手动选择对应 UTC 偏移。</div>
+                    </div>
+
+                    <div class="field">
+                        <label>纬度 Latitude</label>
+                        <input id="latitude" type="number" min="-90" max="90" step="0.000001" value="22.543100" />
+                    </div>
+
+                    <div class="field">
+                        <label>经度 Longitude</label>
+                        <input id="longitude" type="number" min="-180" max="180" step="0.000001" value="114.057900" />
+                    </div>
+
+                    <div class="field">
+                        <label>时区 Timezone</label>
+                        <select id="timezone"></select>
+                    </div>
+
+                    <div class="field">
+                        <div class="value-row">
+                            <label>最大亮度</label>
+                            <div class="value"><span id="maxBrightnessValue">100</span>%</div>
+                        </div>
+                        <input id="maxBrightness" type="range" min="0" max="100" value="100" />
+                    </div>
+
+                    <div class="field full">
+                        <div class="switch-line">
+                            <div>
+                                <label>夜间月球模式</label>
+                                <div class="note">夜间根据月亮高度角显示月球轨迹或低亮度月光效果。</div>
+                            </div>
+                            <label class="switch">
+                                <input id="moonMode" type="checkbox" checked />
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="actions">
+                    <button class="secondary" onclick="reloadState()">刷新状态</button>
+                </div>
+            </div>
+
+            <div class="panel" id="panel-night">
+                <div class="panel-header">
+                    <div class="panel-title">夜灯模式</div>
+                    <div class="panel-desc">
+                        天穹全部亮起，适合作为柔和氛围灯使用。亮度与色温变化会实时同步。
+                    </div>
+                </div>
+
+                <div class="form-grid">
+                    <div class="field full">
+                        <div class="value-row">
+                            <label>夜灯亮度</label>
+                            <div class="value"><span id="nightBrightnessValue">40</span>%</div>
+                        </div>
+                        <input id="nightBrightness" type="range" min="0" max="100" value="40" />
+                    </div>
+
+                    <div class="field full">
+                        <div class="value-row">
+                            <label>色温</label>
+                            <div class="value"><span id="colorTempValue">3000</span>K</div>
+                        </div>
+                        <input id="colorTemp" type="range" min="1700" max="6500" step="100" value="3000" />
+                        <div class="note">说明：色温为 RGB/RGBW 灯珠模拟的粗略值，并非真实黑体辐射色温。</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel" id="panel-off">
+                <div class="panel-header">
+                    <div class="panel-title">关闭</div>
+                    <div class="panel-desc">
+                        进入该模式后，设备会立即关闭全部灯光输出，并停止天体位置同步显示。
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast">Saved</div>
+
+<script>
+const state = {
+    mode: "time",
+    angle: 90,
+    brightness: 80,
+    max_brightness: 100,
+    latitude: 22.5431,
+    longitude: 114.0579,
+    timezone: 8,
+    moon_mode: true,
+    night_brightness: 40,
+    color_temp: 3000
+};
+
+const modeTextMap = {
+    fixed: "固定角度",
+    time: "时间同步",
+    night: "夜灯模式",
+    off: "关闭"
+};
+
+let isLoadingState = false;
+
+const RANGE_SEND_INTERVAL_MS = 300;
+
+let rangeSendTimer = null;
+let dirtyPayload = {};
+let posting = false;
+let pendingPost = false;
+
+function $(id) {
+    return document.getElementById(id);
+}
+
+function initTimezoneSelect() {
+    const select = $("timezone");
+    select.innerHTML = "";
+
+    /*
+     * 这里使用 0.5 小时步进，兼容 UTC+5.5、UTC+9.5 等半时区。
+     */
+    for (let tz = -12; tz <= 14; tz += 0.5) {
+        const opt = document.createElement("option");
+        opt.value = String(tz);
+
+        const sign = tz >= 0 ? "+" : "";
+        const text = Number.isInteger(tz)
+            ? `UTC${sign}${tz}`
+            : `UTC${sign}${tz.toFixed(1)}`;
+
+        opt.textContent = text;
+        select.appendChild(opt);
+    }
+}
+
+function setModeUI(mode) {
+    state.mode = mode;
+
+    document.querySelectorAll(".mode-btn").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.mode === mode);
+    });
+
+    document.querySelectorAll(".panel").forEach(panel => {
+        panel.classList.remove("active");
+    });
+
+    const panel = $(`panel-${mode}`);
+    if (panel) {
+        panel.classList.add("active");
+    }
+
+    $("currentModeText").textContent = modeTextMap[mode] || mode;
+
+    updatePreview();
+}
+
+function setMode(mode) {
+    setModeUI(mode);
+
+    if (!isLoadingState) {
+        sendNow({
+            mode: mode
+        });
+    }
+}
+
+function bindModeButtons() {
+    document.querySelectorAll(".mode-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            setMode(btn.dataset.mode);
+        });
+    });
+}
+
+function updateRangeText(id, valueId) {
+    const input = $(id);
+    const value = $(valueId);
+
+    value.textContent = input.value;
+
+    if (id === "angle") {
+        state.angle = Number(input.value);
+        updatePreview();
+    }
+}
+
+function bindRangeRealtime(id, valueId, payloadKey, modeName) {
+    const input = $(id);
+
+    input.addEventListener("input", () => {
+        updateRangeText(id, valueId);
+
+        if (isLoadingState) return;
+
+        const payload = {
+            mode: modeName
+        };
+
+        payload[payloadKey] = Number(input.value);
+
+        sendRangeThrottled(payload);
+    });
+
+    /*
+     * 鼠标松开、触摸结束、键盘调整结束时，发送最终值。
+     */
+    input.addEventListener("change", () => {
+        updateRangeText(id, valueId);
+
+        if (isLoadingState) return;
+
+        const payload = {
+            mode: modeName
+        };
+
+        payload[payloadKey] = Number(input.value);
+
+        sendRangeFinal(payload);
+    });
+
+    input.addEventListener("pointerup", () => {
+        updateRangeText(id, valueId);
+
+        if (isLoadingState) return;
+
+        const payload = {
+            mode: modeName
+        };
+
+        payload[payloadKey] = Number(input.value);
+
+        sendRangeFinal(payload);
+    });
+}
+
+function updatePreview() {
+    const sun = $("sunPreview");
+
+    let angle = Number($("angle").value || 90);
+
+    if (state.mode === "off") {
+        sun.style.opacity = "0.1";
+        return;
+    }
+
+    if (state.mode === "night") {
+        sun.style.opacity = "0.35";
+        sun.style.left = "50%";
+        sun.style.top = "45%";
+        return;
+    }
+
+    sun.style.opacity = "1";
+
+    const rad = angle * Math.PI / 180.0;
+
+    const cx = 50;
+    const cy = 92;
+    const rx = 36;
+    const ry = 72;
+
+    const x = cx - Math.cos(rad) * rx;
+    const y = cy - Math.sin(rad) * ry;
+
+    sun.style.left = `${x}%`;
+    sun.style.top = `${y}%`;
+}
+
+function applyLocationPreset() {
+    const value = $("locationPreset").value;
+    if (!value) return;
+
+    const parts = value.split(",").map(Number);
+
+    $("latitude").value = parts[0].toFixed(6);
+    $("longitude").value = parts[1].toFixed(6);
+    $("timezone").value = String(parts[2]);
+
+    if (!isLoadingState) {
+        sendNow({
+            mode: "time",
+            latitude: Number($("latitude").value),
+            longitude: Number($("longitude").value),
+            timezone: Number($("timezone").value)
+        });
+    }
+}
+
+function showToast(text) {
+    const toast = $("toast");
+    toast.textContent = text;
+    toast.classList.add("show");
+
+    setTimeout(() => {
+        toast.classList.remove("show");
+    }, 1000);
+}
+
+function setStatus(text) {
+    $("statusText").textContent = text;
+}
+
+async function apiGet(path) {
+    const res = await fetch(path, {
+        method: "GET",
+        cache: "no-store"
+    });
+
+    if (!res.ok) {
+        throw new Error(`GET ${path} failed`);
+    }
+
+    return await res.json();
+}
+
+async function apiPost(path, data) {
+    const res = await fetch(path, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(data)
+    });
+
+    if (!res.ok) {
+        throw new Error(`POST ${path} failed`);
+    }
+
+    return await res.json();
+}
+
+async function postMergedPayload(payload) {
+    Object.assign(dirtyPayload, payload);
+
+    if (posting) {
+        pendingPost = true;
+        return;
+    }
+
+    posting = true;
+
+    const sendingPayload = Object.assign({}, dirtyPayload);
+    dirtyPayload = {};
+    pendingPost = false;
+
+    try {
+        setStatus("Syncing");
+
+        const s = await apiPost("/api/control", sendingPayload);
+
+        updateStateOnly(s);
+
+        setStatus("Ready");
+    } catch (e) {
+        console.error(e);
+        setStatus("Error");
+        showToast("同步失败");
+    } finally {
+        posting = false;
+
+        if (pendingPost || Object.keys(dirtyPayload).length > 0) {
+            postMergedPayload({});
+        }
+    }
+}
+
+function sendNow(payload) {
+    if (isLoadingState) return;
+
+    if (rangeSendTimer) {
+        clearTimeout(rangeSendTimer);
+        rangeSendTimer = null;
+    }
+
+    postMergedPayload(payload);
+}
+
+function sendRangeThrottled(payload) {
+    if (isLoadingState) return;
+
+    Object.assign(dirtyPayload, payload);
+
+    if (rangeSendTimer) {
+        return;
+    }
+
+    rangeSendTimer = setTimeout(() => {
+        rangeSendTimer = null;
+        postMergedPayload({});
+    }, RANGE_SEND_INTERVAL_MS);
+}
+
+function sendRangeFinal(payload) {
+    if (isLoadingState) return;
+
+    if (rangeSendTimer) {
+        clearTimeout(rangeSendTimer);
+        rangeSendTimer = null;
+    }
+
+    postMergedPayload(payload);
+}
+
+/*
+ * 只更新本地 state，不反向覆盖正在拖动的 UI。
+ * 避免滑条拖动时被服务器返回值打断。
+ */
+function updateStateOnly(s) {
+    Object.assign(state, s);
+
+    if (s.mode) {
+        setModeUI(s.mode);
+    }
+}
+
+function updateUIFromState(s) {
+    isLoadingState = true;
+
+    Object.assign(state, s);
+
+    setModeUI(state.mode || "time");
+
+    $("angle").value = state.angle ?? 90;
+    $("brightness").value = state.brightness ?? 80;
+
+    $("maxBrightness").value = state.max_brightness ?? 100;
+    $("latitude").value = Number(state.latitude ?? 22.5431).toFixed(6);
+    $("longitude").value = Number(state.longitude ?? 114.0579).toFixed(6);
+    $("timezone").value = String(state.timezone ?? 8);
+    $("moonMode").checked = !!state.moon_mode;
+
+    $("nightBrightness").value = state.night_brightness ?? 40;
+    $("colorTemp").value = state.color_temp ?? 3000;
+
+    updateRangeText("angle", "angleValue");
+    updateRangeText("brightness", "brightnessValue");
+    updateRangeText("maxBrightness", "maxBrightnessValue");
+    updateRangeText("nightBrightness", "nightBrightnessValue");
+    updateRangeText("colorTemp", "colorTempValue");
+
+    updatePreview();
+
+    isLoadingState = false;
+}
+
+async function reloadState() {
+    try {
+        setStatus("Loading");
+
+        isLoadingState = true;
+
+        const s = await apiGet("/api/state");
+
+        isLoadingState = false;
+
+        updateUIFromState(s);
+
+        setStatus("Ready");
+    } catch (e) {
+        console.error(e);
+
+        isLoadingState = false;
+
+        setStatus("Offline");
+        showToast("读取状态失败");
+    }
+}
+
+function bindRealtimeInputs() {
+    /*
+     * 滑条类：
+     * input 事件 300ms 节流发送；
+     * change / pointerup 发送最终值。
+     */
+    bindRangeRealtime("angle", "angleValue", "angle", "fixed");
+    bindRangeRealtime("brightness", "brightnessValue", "brightness", "fixed");
+    bindRangeRealtime("maxBrightness", "maxBrightnessValue", "max_brightness", "time");
+    bindRangeRealtime("nightBrightness", "nightBrightnessValue", "night_brightness", "night");
+    bindRangeRealtime("colorTemp", "colorTempValue", "color_temp", "night");
+
+    /*
+     * 经纬度输入：
+     * 使用 change 事件，避免输入每一个字符都发送。
+     */
+    $("latitude").addEventListener("change", () => {
+        sendNow({
+            mode: "time",
+            latitude: Number($("latitude").value)
+        });
+    });
+
+    $("longitude").addEventListener("change", () => {
+        sendNow({
+            mode: "time",
+            longitude: Number($("longitude").value)
+        });
+    });
+
+    $("timezone").addEventListener("change", () => {
+        sendNow({
+            mode: "time",
+            timezone: Number($("timezone").value)
+        });
+    });
+
+    $("moonMode").addEventListener("change", () => {
+        sendNow({
+            mode: "time",
+            moon_mode: $("moonMode").checked
+        });
+    });
+
+    $("locationPreset").addEventListener("change", applyLocationPreset);
+}
+
+function init() {
+    initTimezoneSelect();
+    bindModeButtons();
+    bindRealtimeInputs();
+
+    setModeUI("time");
+    reloadState();
+}
+
+window.addEventListener("DOMContentLoaded", init);
+</script>
+</body>
+</html>

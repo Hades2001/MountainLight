@@ -1,4 +1,5 @@
 #include "makerhub.h"
+#include "esp_sntp.h"
 
 static const char *TAG = "makerhub";
 
@@ -25,6 +26,19 @@ static dev_comm_ctx_t g_comm_ctx = {
     .slot1            = {0},
     .slot2            = {0},
     .slot3            = {0},
+};
+
+static makerhub_wifi_event_callbacks_t g_wifi_callbacks = {0};
+static bool g_ntp_started = false;
+static bool g_ntp_synced = false;
+static double g_ntp_timezone_hours = 8.0;
+static makerhub_ntp_state_t g_ntp_state = MAKERHUB_NTP_STATE_STOPPED;
+
+static const char *g_ntp_servers[] = {
+    "pool.ntp.org",
+    "time.google.com",
+    "time.cloudflare.com",
+    "ntp.aliyun.com",
 };
 
 
@@ -80,6 +94,246 @@ static esp_err_t save_wifi_and_custom_to_nvs()
     nvs_close(h);
     return err;
 }
+
+esp_err_t makerhub_nvs_has_config(bool *has_config)
+{
+    if (!has_config) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    *has_config = false;
+
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE_NETCFG, NVS_READONLY, &h);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        return ESP_OK;
+    }
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    const char *keys[] = {
+        NVS_KEY_WIFI_SSID,
+        NVS_KEY_WIFI_PASS,
+        NVS_KEY_SLOT1,
+        NVS_KEY_SLOT2,
+        NVS_KEY_SLOT3,
+    };
+
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); ++i) {
+        size_t len = 0;
+        err = nvs_get_str(h, keys[i], NULL, &len);
+        if (err == ESP_OK && len > 1) {
+            *has_config = true;
+            break;
+        }
+        if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
+            nvs_close(h);
+            return err;
+        }
+    }
+
+    nvs_close(h);
+    return ESP_OK;
+}
+
+esp_err_t makerhub_nvs_clear_config(void)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE_NETCFG, NVS_READWRITE, &h);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        return ESP_OK;
+    }
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = nvs_erase_all(h);
+    if (err == ESP_OK) {
+        err = nvs_commit(h);
+    }
+    nvs_close(h);
+
+    if (err == ESP_OK) {
+        g_comm_ctx.ssid[0] = '\0';
+        g_comm_ctx.pass[0] = '\0';
+        g_comm_ctx.slot1[0] = '\0';
+        g_comm_ctx.slot2[0] = '\0';
+        g_comm_ctx.slot3[0] = '\0';
+    }
+
+    return err;
+}
+
+#if MAKERHUB_NTP_ENABLED
+
+static void ntp_time_sync_notification_cb(struct timeval *tv)
+{
+    time_t now = 0;
+    struct tm utc_time = {0};
+
+    time(&now);
+    gmtime_r(&now, &utc_time);
+
+    g_ntp_synced = true;
+    g_ntp_state = MAKERHUB_NTP_STATE_SYNCED;
+
+    ESP_LOGI(TAG,
+             "NTP time synced: %04d-%02d-%02d %02d:%02d:%02d UTC",
+             utc_time.tm_year + 1900,
+             utc_time.tm_mon + 1,
+             utc_time.tm_mday,
+             utc_time.tm_hour,
+             utc_time.tm_min,
+             utc_time.tm_sec);
+}
+
+esp_err_t makerhub_ntp_start(void)
+{
+    if (!g_comm_ctx.wifi_connected) {
+        g_ntp_state = MAKERHUB_NTP_STATE_FAILED;
+        ESP_LOGW(TAG, "Skip NTP start: Wi-Fi is not connected.");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    g_ntp_state = MAKERHUB_NTP_STATE_SYNCING;
+
+    if (g_ntp_started) {
+        if (esp_sntp_restart()) {
+            ESP_LOGI(TAG, "NTP restarted.");
+        }
+        return ESP_OK;
+    }
+
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_set_sync_mode(SNTP_SYNC_MODE_IMMED);
+    esp_sntp_set_sync_interval(MAKERHUB_NTP_SYNC_INTERVAL_MS);
+    esp_sntp_set_time_sync_notification_cb(ntp_time_sync_notification_cb);
+
+    size_t server_count = sizeof(g_ntp_servers) / sizeof(g_ntp_servers[0]);
+#ifdef CONFIG_LWIP_SNTP_MAX_SERVERS
+    if (server_count > CONFIG_LWIP_SNTP_MAX_SERVERS) {
+        server_count = CONFIG_LWIP_SNTP_MAX_SERVERS;
+    }
+#endif
+
+    for (size_t i = 0; i < server_count; ++i) {
+        esp_sntp_setservername((u8_t)i, g_ntp_servers[i]);
+        ESP_LOGI(TAG, "NTP server[%u]: %s", (unsigned)i, g_ntp_servers[i]);
+    }
+
+    esp_sntp_init();
+    g_ntp_started = true;
+
+    ESP_LOGI(TAG, "NTP started, sync interval: %d ms", MAKERHUB_NTP_SYNC_INTERVAL_MS);
+    return ESP_OK;
+}
+
+bool makerhub_ntp_is_synced(void)
+{
+    return g_ntp_synced;
+}
+
+makerhub_ntp_state_t makerhub_ntp_get_state(void)
+{
+    return g_ntp_state;
+}
+
+esp_err_t makerhub_ntp_set_timezone(double timezone_hours)
+{
+    if (timezone_hours < -12.0 || timezone_hours > 14.0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    g_ntp_timezone_hours = timezone_hours;
+    ESP_LOGI(TAG, "NTP timezone set to UTC%+.2f", g_ntp_timezone_hours);
+    return ESP_OK;
+}
+
+double makerhub_ntp_get_timezone(void)
+{
+    return g_ntp_timezone_hours;
+}
+
+esp_err_t makerhub_ntp_get_time(time_t *now, struct tm *utc_time)
+{
+    if (!now && !utc_time) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!g_ntp_synced) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    time_t current = 0;
+    time(&current);
+
+    if (now) {
+        *now = current;
+    }
+    if (utc_time) {
+        gmtime_r(&current, utc_time);
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t makerhub_ntp_get_local_time(time_t *now, struct tm *local_time)
+{
+    time_t utc_now = 0;
+    esp_err_t err = makerhub_ntp_get_time(&utc_now, NULL);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    time_t local_now = utc_now + (time_t)(g_ntp_timezone_hours * 3600.0);
+    if (now) {
+        *now = local_now;
+    }
+    if (local_time) {
+        gmtime_r(&local_now, local_time);
+    }
+
+    return ESP_OK;
+}
+
+#else
+
+esp_err_t makerhub_ntp_start(void)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+bool makerhub_ntp_is_synced(void)
+{
+    return false;
+}
+
+makerhub_ntp_state_t makerhub_ntp_get_state(void)
+{
+    return MAKERHUB_NTP_STATE_STOPPED;
+}
+
+esp_err_t makerhub_ntp_set_timezone(double timezone_hours)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+double makerhub_ntp_get_timezone(void)
+{
+    return 0.0;
+}
+
+esp_err_t makerhub_ntp_get_time(time_t *now, struct tm *utc_time)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t makerhub_ntp_get_local_time(time_t *now, struct tm *local_time)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+#endif
 
 
 #if MAKERHUB_WIFI_ENABLED
@@ -191,13 +445,33 @@ static void wifi_event_handler(void *arg,
                                void *event_data)
 {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
+        if (g_wifi_callbacks.on_connecting) {
+            g_wifi_callbacks.on_connecting(g_wifi_callbacks.user_ctx);
+        }
         esp_wifi_connect();
         ESP_LOGI(TAG, "Wi-Fi STA started, connecting...");
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_CONNECTED) {
+        if (g_wifi_callbacks.on_connected) {
+            g_wifi_callbacks.on_connected(g_wifi_callbacks.user_ctx);
+        }
+        ESP_LOGI(TAG, "Wi-Fi connected to AP.");
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        wifi_event_sta_disconnected_t *event = (wifi_event_sta_disconnected_t *)event_data;
+        bool was_connected = g_comm_ctx.wifi_connected;
+
         ESP_LOGW(TAG, "Wi-Fi disconnected");
         g_comm_ctx.wifi_connected = false;
         strcpy(g_comm_ctx.ip, "0.0.0.0");
         g_comm_ctx.ssid[0] = '\0';
+
+        if (was_connected) {
+            if (g_wifi_callbacks.on_disconnected) {
+                g_wifi_callbacks.on_disconnected(g_wifi_callbacks.user_ctx);
+            }
+        } else if (g_wifi_callbacks.on_connect_failed) {
+            wifi_err_reason_t reason = event ? event->reason : WIFI_REASON_UNSPECIFIED;
+            g_wifi_callbacks.on_connect_failed(reason, g_wifi_callbacks.user_ctx);
+        }
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
         snprintf(g_comm_ctx.ip, sizeof(g_comm_ctx.ip), IPSTR, IP2STR(&event->ip_info.ip));
@@ -209,6 +483,12 @@ static void wifi_event_handler(void *arg,
             strncpy(g_comm_ctx.ssid, (const char *)ap.ssid, sizeof(g_comm_ctx.ssid) - 1);
         } else {
             g_comm_ctx.ssid[0] = '\0';
+        }
+
+        makerhub_ntp_start();
+
+        if (g_wifi_callbacks.on_got_ip) {
+            g_wifi_callbacks.on_got_ip(g_comm_ctx.ip, g_wifi_callbacks.user_ctx);
         }
     }
 }
@@ -272,6 +552,15 @@ static void wifi_init_sta(void)
     ESP_LOGI(TAG, "Wi-Fi STA init done.");
 }
 
+void makerhub_wifi_set_event_callbacks(const makerhub_wifi_event_callbacks_t *callbacks)
+{
+    if (callbacks) {
+        g_wifi_callbacks = *callbacks;
+    } else {
+        memset(&g_wifi_callbacks, 0, sizeof(g_wifi_callbacks));
+    }
+}
+
 bool wifi_is_connected(void)
 {
     return g_comm_ctx.wifi_connected;
@@ -308,13 +597,13 @@ static void wifi_scan_task(void *arg)
 
     while (1) {
         // 如果未连接网络，就尝试更新扫描结果
-        //if (!g_comm_ctx.wifi_connected) {
-        //    wifi_scan_update_cache();
-        //} else {
-        //    // 已连接时什么也不做，只是保持 scan_list 为上一次缓存
-        //    ESP_LOGD(TAG, "wifi_scan_task: connected, skip scan.");
-        //}
-        wifi_scan_update_cache();
+        if (!g_comm_ctx.wifi_connected) {
+            wifi_scan_update_cache();
+        } else {
+            // 已连接时什么也不做，只是保持 scan_list 为上一次缓存
+            ESP_LOGD(TAG, "wifi_scan_task: connected, skip scan.");
+        }
+        //wifi_scan_update_cache();
         vTaskDelay(pdMS_TO_TICKS(MAKERHUB_WIFI_SCAN_INTERVAL_MS));
     }
 }
